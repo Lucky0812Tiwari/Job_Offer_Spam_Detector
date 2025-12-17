@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JOB OFFER SPAM CHECKER</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #3b82f6;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-6">
+
+    <div class="max-w-2xl w-full bg-gray-800 rounded-xl shadow-2xl p-8 border border-gray-700">
+        <h1 class="text-3xl font-bold text-center text-blue-400 mb-2">🛡️ JOB OFFER SPAM CHECKER 🛡️</h1>
+        <p class="text-gray-400 text-center mb-8 text-sm">Paste job offers, emails, or WhatsApp messages to check for scams.</p>
+
+        <textarea id="jobText" rows="6" 
+            class="w-full p-4 rounded-lg bg-gray-900 border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+            placeholder="Paste the offer text here..."></textarea>
+
+        <button id="btnText" onclick="analyzeText()" 
+            class="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition transform active:scale-95 flex items-center justify-center">
+            <span id="textLoader" class="loader hidden"></span>
+            <span>Analyze for Red Flags</span>
+        </button>
+
+        <div class="mt-4 p-4 border-2 border-dashed border-gray-600 rounded-lg text-center bg-gray-900">
+            <p class="text-sm text-gray-400 mb-2 font-medium">Or scan an official Offer Letter (PDF)</p>
+            <div class="flex flex-col items-center gap-3">
+                <input type="file" id="pdfFile" accept=".pdf" 
+                    class="text-xs text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700">
+                <button id="btnPdf" onclick="analyzePDF()" class="text-blue-400 text-sm font-bold hover:underline flex items-center justify-center">
+                    <span id="pdfLoader" class="loader hidden"></span>
+                    <span>🚀 Scan PDF Document</span>
+                </button>
+            </div>
+        </div>
+
+        <div id="resultArea" class="mt-8 hidden border-t border-gray-700 pt-6">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-lg font-semibold">Scam Probability:</span>
+                <span id="scamScore" class="text-2xl font-bold text-red-500">0%</span>
+            </div>
+            
+            <div class="w-full bg-gray-700 rounded-full h-4 mb-6">
+                <div id="scoreBar" class="bg-red-500 h-4 rounded-full transition-all duration-1000" style="width: 0%"></div>
+            </div>
+
+            <div id="explanationBox" class="p-4 bg-gray-900 rounded-lg border-l-4 border-yellow-500">
+                <p id="explanationText" class="text-sm text-gray-300"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = "http://127.0.0.1:8000";
+
+        // Logic to update the UI
+        function updateUI(data) {
+            const resultArea = document.getElementById('resultArea');
+            const scoreText = document.getElementById('scamScore');
+            const explanation = document.getElementById('explanationText');
+            const bar = document.getElementById('scoreBar');
+
+            resultArea.classList.remove('hidden');
+
+            // Handling the "Unreadable" PDF status
+            if (data.status === "⚠️ UNREADABLE") {
+                scoreText.innerText = "N/A";
+                scoreText.style.color = "#9ca3af"; 
+                bar.style.width = "0%";
+                explanation.innerText = data.detailed_warnings ? data.detailed_warnings[0] : "File is unreadable.";
+            } else {
+                // Ensure we handle missing keys to avoid 'undefined'
+                const probability = data.scam_score || "0%";
+                scoreText.innerText = probability;
+                bar.style.width = probability;
+                
+                const warnings = data.detailed_warnings ? data.detailed_warnings.join(". ") : "";
+                explanation.innerText = (data.message || "") + " " + warnings;
+                
+                // Color coding logic based on score
+                const scoreInt = parseFloat(probability);
+                const color = scoreInt > 70 ? '#ef4444' : (scoreInt > 40 ? '#f59e0b' : '#10b981');
+                scoreText.style.color = color;
+                bar.style.backgroundColor = color;
+            }
+        }
+
+        async function analyzeText() {
+            const text = document.getElementById('jobText').value;
+            const loader = document.getElementById('textLoader');
+            if (!text) return alert("Please paste some text first!");
+
+            loader.classList.remove('hidden');
+            try {
+                const response = await fetch(`${API_BASE_URL}/predict`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: text })
+                });
+                const data = await response.json();
+                updateUI(data);
+            } catch (error) {
+                console.error("Connection Error:", error);
+                alert("Cannot connect to server. Ensure FastAPI is running on Port 8000.");
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        async function analyzePDF() {
+            const fileInput = document.getElementById('pdfFile');
+            const loader = document.getElementById('pdfLoader');
+            if (!fileInput || fileInput.files.length === 0) return alert("Please select a PDF file!");
+
+            loader.classList.remove('hidden');
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                // Fetch API handles multi-part form data automatically
+                const response = await fetch(`${API_BASE_URL}/predict-pdf`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                updateUI(data);
+            } catch (error) {
+                console.error("PDF Error:", error);
+                alert("Failed to analyze PDF.");
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
